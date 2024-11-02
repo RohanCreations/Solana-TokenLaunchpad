@@ -24,7 +24,6 @@ export default function TokenLaunchpad() {
   const [tokenSymbol, setTokenSymbol] = useState('');
   const [tokenSupply, setTokenSupply] = useState(0);
   const [decimals, setDecimals] = useState(9);
-  const [imageUrl, setImageUrl] = useState('');
   const [enableFreezeAuthority, setEnableFreezeAuthority] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [createdToken, setCreatedToken] = useState(null);
@@ -131,7 +130,6 @@ export default function TokenLaunchpad() {
         supply: tokenSupply,
         decimals: decimals,
         freezeAuthority: enableFreezeAuthority,
-        imageUrl: imageUrl,
         explorerUrl: `https://explorer.solana.com/address/${mintKeypair.publicKey.toString()}?cluster=devnet`,
         signature: signature
       });
@@ -214,16 +212,6 @@ export default function TokenLaunchpad() {
                 />
               </div>
 
-              <div>
-                <label className="block text-lg font-medium mb-4">Token Image URL</label>
-                <input
-                  type="url"
-                  className="w-full px-4 py-2 bg-black border border-white rounded-md text-white focus:outline-none focus:ring-2 focus:ring-white"
-                  placeholder="https://example.com/token-image.png"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                />
-              </div>
 
               <div className="flex items-center space-x-2 py-3">
                 <input
@@ -278,16 +266,6 @@ export default function TokenLaunchpad() {
               >
                 <h2 className="text-2xl font-semibold mb-6">Token Created Successfully!</h2>
                 <div className="space-y-4">
-                  {imageUrl && (
-                    <div className="flex justify-center mb-4">
-                      <img
-                        src="/placeholder.svg?height=100&width=100"
-                        alt={tokenName}
-                        className="w-24 h-24 rounded-full"
-                      />
-                    </div>
-                  )}
-
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-gray-400 text-sm">Name</p>
