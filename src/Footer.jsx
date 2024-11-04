@@ -15,30 +15,36 @@ export default function Footer() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.5 }}
-                    className="flex items-center justify-between space-y-4"
+                    className="flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0"
                 >
-                    <div className="flex space-x-6">
-                        <p className="text-xl text-center">Connect with me on:</p>
-                        {socialLinks.map((link) => (
-                            <motion.div
-                                key={link.name}
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.95 }}
-                            >
-                                <a href={link.url} target="_blank" rel="noopener noreferrer"
-                                    className="text-white hover:text-gray-300 transition-colors"
-                                    aria-label={`Connect on ${link.name}`}
+                    <div className="flex flex-col md:flex-row items-center space-x-0 md:space-x-6 space-y-4 md:space-y-0 text-center md:text-left">
+                        <p className="text-xl">Connect with me on:</p>
+                        <div className="flex space-x-4">
+                            {socialLinks.map((link) => (
+                                <motion.div
+                                    key={link.name}
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.95 }}
                                 >
-                                    <link.icon className="w-6 h-6" />
-                                </a>
-                            </motion.div>
-                        ))}
+                                    <a
+                                        href={link.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-white hover:text-gray-300 transition-colors"
+                                        aria-label={`Connect on ${link.name}`}
+                                    >
+                                        <link.icon className="w-6 h-6" />
+                                    </a>
+                                </motion.div>
+                            ))}
+                        </div>
                     </div>
-                    <p className="text-xl text-gray-400 mt-4">
+                    <p className="text-xl text-gray-400 text-center md:text-right">
                         © {new Date().getFullYear()} Rohan Singla. All rights reserved.
                     </p>
                 </motion.div>
             </div>
         </footer>
+
     )
 }

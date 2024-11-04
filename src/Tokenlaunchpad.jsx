@@ -9,7 +9,7 @@ import {
   clusterApiUrl,
   Connection,
 } from "@solana/web3.js";
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import {
   TOKEN_PROGRAM_ID,
   MINT_SIZE,
@@ -34,70 +34,71 @@ export default function TokenLaunchpad() {
   const devnetConnection = new Connection(clusterApiUrl('devnet'));
 
   async function createToken(e) {
-    e.preventDefault();
-    setIsLoading(true);
-    setError('');
-    setCreatedToken(null);
+    e.preventDefault(); // Prevent the default form submission behavior.
+    setIsLoading(true); // Set loading state to true, usually to show a spinner.
+    setError(''); // Clear any previous error messages.
+    setCreatedToken(null); // Reset the created token details.
 
+    // Check if the wallet is connected
     if (!wallet.publicKey) {
-      setError("Please connect your wallet first");
-      setIsLoading(false);
-      return;
+      setError("Please connect your wallet first"); // Show an error if wallet is not connected.
+      setIsLoading(false); // Stop loading if no wallet is connected.
+      return; // Exit the function early.
     }
 
     try {
-      // Generate the mint keypair
+      // Generate the mint keypair (the unique identifier for the new token).
       const mintKeypair = Keypair.generate();
 
-      // Get the minimum lamports required for the mint
+      // Calculate the minimum balance needed to make the token account rent-exempt.
       const mintRent = await devnetConnection.getMinimumBalanceForRentExemption(MINT_SIZE);
 
-      // Create the account instruction
+      // Create an instruction to create the new account for the token.
       const createAccountInstruction = SystemProgram.createAccount({
-        fromPubkey: wallet.publicKey,
-        newAccountPubkey: mintKeypair.publicKey,
-        space: MINT_SIZE,
-        lamports: mintRent,
-        programId: TOKEN_PROGRAM_ID
+        fromPubkey: wallet.publicKey, // Funding the new account from the user's wallet.
+        newAccountPubkey: mintKeypair.publicKey, // New token account public key.
+        space: MINT_SIZE, // Required space for the token mint account.
+        lamports: mintRent, // Amount of lamports to fund the account for rent exemption.
+        programId: TOKEN_PROGRAM_ID // Specifies that this account is for tokens.
       });
 
-      // Create the initialization instruction
+      // Instruction to initialize the mint (set initial parameters for the token).
       const initializeMintInstruction = createInitializeMintInstruction(
-        mintKeypair.publicKey,
-        decimals,
-        wallet.publicKey,
-        enableFreezeAuthority ? wallet.publicKey : null,
-        TOKEN_PROGRAM_ID
+        mintKeypair.publicKey, // The mint (token) account.
+        decimals, // Number of decimal places for the token.
+        wallet.publicKey, // Token owner.
+        enableFreezeAuthority ? wallet.publicKey : null, // Freeze authority if applicable.
+        TOKEN_PROGRAM_ID // Specifies token program for the mint.
       );
 
-      // Get the associated token account address
+      // Get the address for the associated token account.
       const associatedTokenAccount = await getAssociatedTokenAddress(
-        mintKeypair.publicKey,
-        wallet.publicKey
+        mintKeypair.publicKey, // Mint account for the token.
+        wallet.publicKey // The wallet address to hold the tokens.
       );
 
-      // Create the associated token account instruction
+      // Instruction to create the associated token account for the wallet.
       const createAtaInstruction = createAssociatedTokenAccountInstruction(
-        wallet.publicKey,
-        associatedTokenAccount,
-        wallet.publicKey,
-        mintKeypair.publicKey
+        wallet.publicKey, // Payer to fund the associated token account creation.
+        associatedTokenAccount, // Associated token account address.
+        wallet.publicKey, // Owner of the associated token account.
+        mintKeypair.publicKey // Mint for which the token account is created.
       );
 
-      // Calculate the real supply with decimals
+      // Calculate the total supply in terms of smallest units (e.g., "cents" if it’s USD).
       const realSupply = tokenSupply * Math.pow(10, decimals);
 
-      // Create the mint to instruction
+      // Instruction to mint the specified amount of tokens to the associated token account.
       const mintToInstruction = createMintToInstruction(
-        mintKeypair.publicKey,
-        associatedTokenAccount,
-        wallet.publicKey,
-        realSupply,
-        [],
-        TOKEN_PROGRAM_ID
+        mintKeypair.publicKey, // Mint account.
+        associatedTokenAccount, // Destination associated token account.
+        wallet.publicKey, // Authority to mint tokens.
+        realSupply, // Number of tokens to mint in smallest units.
+        [], // Signer for the minting (none needed here).
+        TOKEN_PROGRAM_ID // Specifies the token program.
       );
 
-      // Create and send the combined transaction
+      // Create a transaction and add all instructions to it.
       const transaction = new Transaction().add(
         createAccountInstruction,
         initializeMintInstruction,
@@ -105,66 +106,68 @@ export default function TokenLaunchpad() {
         mintToInstruction
       );
 
-      // Get the latest blockhash
+      // Fetch the latest blockhash to ensure transaction recency.
       const { blockhash } = await devnetConnection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = wallet.publicKey;
+      transaction.recentBlockhash = blockhash; // Set the blockhash.
+      transaction.feePayer = wallet.publicKey; // Set the payer for the transaction fees.
 
-      // Send the transaction
+      // Send the transaction and sign it with the mint keypair.
       const signature = await wallet.sendTransaction(transaction, devnetConnection, {
-        signers: [mintKeypair]
+        signers: [mintKeypair] // Include the mint keypair as a signer.
       });
 
-      // Confirm transaction
+      // Confirm that the transaction succeeded.
       const confirmation = await devnetConnection.confirmTransaction(signature, 'confirmed');
 
+      // If there was an error during confirmation, throw an error.
       if (confirmation.value.err) {
         throw new Error('Transaction failed to confirm');
       }
 
-      // Set the created token details
+      // Set the created token details for display or tracking.
       setCreatedToken({
-        address: mintKeypair.publicKey.toString(),
-        name: tokenName,
-        symbol: tokenSymbol,
-        supply: tokenSupply,
-        decimals: decimals,
-        freezeAuthority: enableFreezeAuthority,
-        explorerUrl: `https://explorer.solana.com/address/${mintKeypair.publicKey.toString()}?cluster=devnet`,
-        signature: signature
+        address: mintKeypair.publicKey.toString(), // Token address.
+        name: tokenName, // Token name.
+        symbol: tokenSymbol, // Token symbol.
+        supply: tokenSupply, // Initial supply.
+        decimals: decimals, // Number of decimals.
+        freezeAuthority: enableFreezeAuthority, // Indicates if freeze authority is enabled.
+        explorerUrl: `https://explorer.solana.com/address/${mintKeypair.publicKey.toString()}?cluster=devnet`, // URL for blockchain explorer.
+        signature: signature // Transaction signature.
       });
 
-      console.log('Token created successfully!', signature);
+      console.log('Token created successfully!', signature); // Log success message.
 
     } catch (error) {
-      console.error("Error creating token:", error);
-      setError(error.message);
+      console.error("Error creating token:", error); // Log the error to the console.
+      setError(error.message); // Display the error to the user.
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // End the loading state.
     }
   }
 
+
   return (
-    <div className="min-h-screen bg-black text-white p-8">
+    <div className="min-h-screen bg-black text-white p-4 sm:p-8">
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="container mx-auto"
       >
-        <h1 className="text-4xl font-bold mb-8 text-center">Solana Token Launchpad</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold mb-8 text-center">Solana Token Launchpad</h1>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 w-full">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.5, delay: 0.2 }}
-            className="bg-white bg-opacity-10 p-6 rounded-lg"
+            className="bg-white bg-opacity-10 p-4 sm:p-6 rounded-lg"
           >
-            <h2 className="text-3xl font-semibold mb-6">Create New Token</h2>
+            <h2 className="text-2xl sm:text-3xl font-semibold mb-6">Create New Token</h2>
             <form className="space-y-4" onSubmit={createToken}>
               <div>
-                <label className="block text-lg font-medium mb-4">Token Name</label>
+                <label className="block text-base sm:text-lg font-medium mb-4">Token Name</label>
                 <input
                   type="text"
                   className="w-full px-4 py-2 bg-black border border-white rounded-md text-white focus:outline-none focus:ring-2 focus:ring-white"
@@ -176,7 +179,7 @@ export default function TokenLaunchpad() {
               </div>
 
               <div>
-                <label className="block text-lg font-medium mb-4">Token Symbol</label>
+                <label className="block text-base sm:text-lg font-medium mb-4">Token Symbol</label>
                 <input
                   type="text"
                   className="w-full px-4 py-2 bg-black border border-white rounded-md text-white focus:outline-none focus:ring-2 focus:ring-white"
@@ -188,7 +191,7 @@ export default function TokenLaunchpad() {
               </div>
 
               <div>
-                <label className="block text-lg font-medium mb-4">Initial Supply</label>
+                <label className="block text-base sm:text-lg font-medium mb-4">Initial Supply</label>
                 <input
                   type="number"
                   className="w-full px-4 py-2 bg-black border border-white rounded-md text-white focus:outline-none focus:ring-2 focus:ring-white"
@@ -200,7 +203,7 @@ export default function TokenLaunchpad() {
               </div>
 
               <div>
-                <label className="block text-lg font-medium mb-4">Decimals</label>
+                <label className="block text-base sm:text-lg font-medium mb-4">Decimals</label>
                 <input
                   type="number"
                   className="w-full px-4 py-2 bg-black border border-white rounded-md text-white focus:outline-none focus:ring-2 focus:ring-white"
@@ -212,7 +215,6 @@ export default function TokenLaunchpad() {
                 />
               </div>
 
-
               <div className="flex items-center space-x-2 py-3">
                 <input
                   type="checkbox"
@@ -221,7 +223,7 @@ export default function TokenLaunchpad() {
                   onChange={(e) => setEnableFreezeAuthority(e.target.checked)}
                   className="w-5 h-5 rounded border-white bg-black text-white focus:ring-white"
                 />
-                <label htmlFor="freezeAuthority" className="text-lg font-medium">
+                <label htmlFor="freezeAuthority" className="text-base sm:text-lg font-medium">
                   Enable Freeze Authority
                 </label>
               </div>
@@ -229,7 +231,7 @@ export default function TokenLaunchpad() {
               <motion.button
                 type="submit"
                 disabled={isLoading || !wallet.publicKey}
-                className={`w-full py-3 text-xl rounded-md font-bold transition-colors ${isLoading || !wallet.publicKey
+                className={`w-full py-3 text-lg sm:text-xl rounded-md font-bold transition-colors ${isLoading || !wallet.publicKey
                   ? 'bg-gray-600 cursor-not-allowed'
                   : 'bg-white text-black hover:bg-gray-200'
                   }`}
@@ -262,11 +264,11 @@ export default function TokenLaunchpad() {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white bg-opacity-10 p-6 rounded-lg"
+                className="bg-white bg-opacity-10 p-4 sm:p-6 rounded-lg"
               >
-                <h2 className="text-2xl font-semibold mb-6">Token Created Successfully!</h2>
+                <h2 className="text-xl sm:text-2xl font-semibold mb-6">Token Created Successfully!</h2>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <p className="text-gray-400 text-sm">Name</p>
                       <p className="font-medium">{createdToken.name}</p>
@@ -283,15 +285,15 @@ export default function TokenLaunchpad() {
                       <p className="text-gray-400 text-sm">Decimals</p>
                       <p className="font-medium">{createdToken.decimals}</p>
                     </div>
-                    <div className="col-span-2">
+                    <div className="col-span-1 sm:col-span-2">
                       <p className="text-gray-400 text-sm">Token Address</p>
                       <p className="font-medium break-all">{createdToken.address}</p>
                     </div>
-                    <div className="col-span-2">
+                    <div className="col-span-1 sm:col-span-2">
                       <p className="text-gray-400 text-sm">Transaction Signature</p>
                       <p className="font-medium break-all">{createdToken.signature}</p>
                     </div>
-                    <div className="col-span-2">
+                    <div className="col-span-1 sm:col-span-2">
                       <p className="text-gray-400 text-sm">Features</p>
                       <p className="font-medium">
                         {createdToken.freezeAuthority ? '✓ Freeze Authority Enabled' : '✗ No Freeze Authority'}
@@ -326,7 +328,8 @@ export default function TokenLaunchpad() {
           </motion.div>
         </div>
       </motion.div>
-      <Footer/>
+      <Footer />
     </div>
+
   );
 }
