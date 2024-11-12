@@ -22,8 +22,8 @@ function App() {
               padding: 20,
               backgroundColor: 'black'
             }}>
-              <WalletMultiButton />
-              <WalletDisconnectButton />
+              <WalletMultiButton style={{backgroundColor:'rgb(31 41 55)',color:"white"}} />
+              <WalletDisconnectButton style={{backgroundColor:'rgb(31 41 55)',color:"white"}} />
             </div>
             <Tokenlaunchpad/>
           </WalletModalProvider>

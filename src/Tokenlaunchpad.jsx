@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Keypair,
@@ -8,6 +8,7 @@ import {
   Transaction,
   clusterApiUrl,
   Connection,
+  PublicKey,
 } from "@solana/web3.js";
 import { useWallet } from '@solana/wallet-adapter-react';
 import {
@@ -16,9 +17,15 @@ import {
   createInitializeMintInstruction,
   createAssociatedTokenAccountInstruction,
   getAssociatedTokenAddress,
-  createMintToInstruction
+  createMintToInstruction,
+  createTransferInstruction,
+  AccountLayout,
+  getOrCreateAssociatedTokenAccount,
+  createMint,
+  mintTo,
 } from "@solana/spl-token";
 import Footer from './Footer';
+
 export default function TokenLaunchpad() {
   const [tokenName, setTokenName] = useState('');
   const [tokenSymbol, setTokenSymbol] = useState('');
@@ -28,77 +35,93 @@ export default function TokenLaunchpad() {
   const [isLoading, setIsLoading] = useState(false);
   const [createdToken, setCreatedToken] = useState(null);
   const [error, setError] = useState('');
+  const [userTokens, setUserTokens] = useState([]);
+  const [transferAmount, setTransferAmount] = useState('');
+  const [recipientAddress, setRecipientAddress] = useState('');
+  const [selectedToken, setSelectedToken] = useState('');
 
   const wallet = useWallet();
-
   const devnetConnection = new Connection(clusterApiUrl('devnet'));
 
-  async function createToken(e) {
-    e.preventDefault(); // Prevent the default form submission behavior.
-    setIsLoading(true); // Set loading state to true, usually to show a spinner.
-    setError(''); // Clear any previous error messages.
-    setCreatedToken(null); // Reset the created token details.
+  useEffect(() => {
+    if (wallet.publicKey) {
+      fetchUserTokens();
+    }
+  }, [wallet.publicKey]);
 
-    // Check if the wallet is connected
-    if (!wallet.publicKey) {
-      setError("Please connect your wallet first"); // Show an error if wallet is not connected.
-      setIsLoading(false); // Stop loading if no wallet is connected.
-      return; // Exit the function early.
+  async function fetchUserTokens() {
+    const tokenAccounts = await devnetConnection.getTokenAccountsByOwner(
+      wallet.publicKey,
+      {
+        programId: TOKEN_PROGRAM_ID,
+      }
+    );
+    const tokens = tokenAccounts.value.map((tokenAccount) => {
+      const accountData = AccountLayout.decode(tokenAccount.account.data);
+      const publicKey = new PublicKey(accountData.mint).toBase58();
+      const amount = parseInt(accountData.amount, 10);
+
+      return { publicKey, amount };
+    });
+
+    setUserTokens(tokens);
+  }
+  console.log(userTokens)
+
+  async function createToken(e) {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+    setCreatedToken(null);
+    if (!wallet || !wallet.publicKey || !wallet.signTransaction) {
+      setError('Please connect your wallet and approve the transaction.');
+      setIsLoading(false);
+      return;
     }
 
     try {
-      // Generate the mint keypair (the unique identifier for the new token).
       const mintKeypair = Keypair.generate();
-
-      // Calculate the minimum balance needed to make the token account rent-exempt.
       const mintRent = await devnetConnection.getMinimumBalanceForRentExemption(MINT_SIZE);
 
-      // Create an instruction to create the new account for the token.
       const createAccountInstruction = SystemProgram.createAccount({
-        fromPubkey: wallet.publicKey, // Funding the new account from the user's wallet.
-        newAccountPubkey: mintKeypair.publicKey, // New token account public key.
-        space: MINT_SIZE, // Required space for the token mint account.
-        lamports: mintRent, // Amount of lamports to fund the account for rent exemption.
-        programId: TOKEN_PROGRAM_ID // Specifies that this account is for tokens.
+        fromPubkey: wallet.publicKey,
+        newAccountPubkey: mintKeypair.publicKey,
+        space: MINT_SIZE,
+        lamports: mintRent,
+        programId: TOKEN_PROGRAM_ID
       });
 
-      // Instruction to initialize the mint (set initial parameters for the token).
       const initializeMintInstruction = createInitializeMintInstruction(
-        mintKeypair.publicKey, // The mint (token) account.
-        decimals, // Number of decimal places for the token.
-        wallet.publicKey, // Token owner.
-        enableFreezeAuthority ? wallet.publicKey : null, // Freeze authority if applicable.
-        TOKEN_PROGRAM_ID // Specifies token program for the mint.
+        mintKeypair.publicKey,
+        decimals,
+        wallet.publicKey,
+        enableFreezeAuthority ? wallet.publicKey : null,
+        TOKEN_PROGRAM_ID
       );
 
-      // Get the address for the associated token account.
       const associatedTokenAccount = await getAssociatedTokenAddress(
-        mintKeypair.publicKey, // Mint account for the token.
-        wallet.publicKey // The wallet address to hold the tokens.
+        mintKeypair.publicKey,
+        wallet.publicKey
       );
 
-      // Instruction to create the associated token account for the wallet.
       const createAtaInstruction = createAssociatedTokenAccountInstruction(
-        wallet.publicKey, // Payer to fund the associated token account creation.
-        associatedTokenAccount, // Associated token account address.
-        wallet.publicKey, // Owner of the associated token account.
-        mintKeypair.publicKey // Mint for which the token account is created.
+        wallet.publicKey,
+        associatedTokenAccount,
+        wallet.publicKey,
+        mintKeypair.publicKey
       );
 
-      // Calculate the total supply in terms of smallest units (e.g., "cents" if it’s USD).
       const realSupply = tokenSupply * Math.pow(10, decimals);
 
-      // Instruction to mint the specified amount of tokens to the associated token account.
       const mintToInstruction = createMintToInstruction(
-        mintKeypair.publicKey, // Mint account.
-        associatedTokenAccount, // Destination associated token account.
-        wallet.publicKey, // Authority to mint tokens.
-        realSupply, // Number of tokens to mint in smallest units.
-        [], // Signer for the minting (none needed here).
-        TOKEN_PROGRAM_ID // Specifies the token program.
+        mintKeypair.publicKey,
+        associatedTokenAccount,
+        wallet.publicKey,
+        realSupply,
+        [],
+        TOKEN_PROGRAM_ID
       );
 
-      // Create a transaction and add all instructions to it.
       const transaction = new Transaction().add(
         createAccountInstruction,
         initializeMintInstruction,
@@ -106,45 +129,144 @@ export default function TokenLaunchpad() {
         mintToInstruction
       );
 
-      // Fetch the latest blockhash to ensure transaction recency.
       const { blockhash } = await devnetConnection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash; // Set the blockhash.
-      transaction.feePayer = wallet.publicKey; // Set the payer for the transaction fees.
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = wallet.publicKey;
 
-      // Send the transaction and sign it with the mint keypair.
       const signature = await wallet.sendTransaction(transaction, devnetConnection, {
-        signers: [mintKeypair] // Include the mint keypair as a signer.
+        signers: [mintKeypair]
       });
 
-      // Confirm that the transaction succeeded.
       const confirmation = await devnetConnection.confirmTransaction(signature, 'confirmed');
 
-      // If there was an error during confirmation, throw an error.
       if (confirmation.value.err) {
         throw new Error('Transaction failed to confirm');
       }
 
-      // Set the created token details for display or tracking.
       setCreatedToken({
-        address: mintKeypair.publicKey.toString(), // Token address.
-        name: tokenName, // Token name.
-        symbol: tokenSymbol, // Token symbol.
-        supply: tokenSupply, // Initial supply.
-        decimals: decimals, // Number of decimals.
-        freezeAuthority: enableFreezeAuthority, // Indicates if freeze authority is enabled.
-        explorerUrl: `https://explorer.solana.com/address/${mintKeypair.publicKey.toString()}?cluster=devnet`, // URL for blockchain explorer.
-        signature: signature // Transaction signature.
+        address: mintKeypair.publicKey.toString(),
+        name: tokenName,
+        symbol: tokenSymbol,
+        supply: tokenSupply,
+        decimals: decimals,
+        freezeAuthority: enableFreezeAuthority,
+        explorerUrl: `https://explorer.solana.com/address/${mintKeypair.publicKey.toString()}?cluster=devnet`,
+        signature: signature
       });
 
-      console.log('Token created successfully!', signature); // Log success message.
+      console.log('Token created successfully!', signature);
+      fetchUserTokens();
 
     } catch (error) {
-      console.error("Error creating token:", error); // Log the error to the console.
-      setError(error.message); // Display the error to the user.
+      console.error("Error creating token:", error);
+      setError(error.message);
     } finally {
-      setIsLoading(false); // End the loading state.
+      setIsLoading(false);
     }
   }
+  async function transferToken(e) {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+
+    if (!wallet.publicKey) {
+      setError("Please connect your wallet first");
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      // Validate recipient address
+      let recipientPubKey;
+      try {
+        recipientPubKey = new PublicKey(recipientAddress);
+      } catch (err) {
+        throw new Error('Invalid recipient address');
+      }
+
+      // Validate selected token and amount
+      if (!selectedToken) {
+        throw new Error('Please select a token to transfer');
+      }
+      if (!transferAmount || transferAmount <= 0) {
+        throw new Error('Please enter a valid amount');
+      }
+
+      const mintPublicKey = new PublicKey(selectedToken);
+
+      // Get the sender's ATA (Associated Token Account)
+      const senderATA = await getAssociatedTokenAddress(
+        mintPublicKey,
+        wallet.publicKey
+      );
+
+      // Get or create the recipient's ATA
+      const recipientATA = await getAssociatedTokenAddress(
+        mintPublicKey,
+        recipientPubKey
+      );
+
+      // Check if recipient ATA exists, if not create it
+      const recipientAccount = await devnetConnection.getAccountInfo(recipientATA);
+
+      const transaction = new Transaction();
+
+      if (!recipientAccount) {
+        transaction.add(
+          createAssociatedTokenAccountInstruction(
+            wallet.publicKey,
+            recipientATA,
+            recipientPubKey,
+            mintPublicKey
+          )
+        );
+      }
+
+      // Calculate the amount with decimals
+      const adjustedAmount = transferAmount * Math.pow(10, decimals);
+
+      // Add transfer instruction
+      transaction.add(
+        createTransferInstruction(
+          senderATA,
+          recipientATA,
+          wallet.publicKey,
+          BigInt(adjustedAmount)
+        )
+      );
+
+      // Get latest blockhash
+      const { blockhash } = await devnetConnection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = wallet.publicKey;
+
+      // Send transaction
+      const signature = await wallet.sendTransaction(transaction, devnetConnection);
+
+      // Confirm transaction
+      const confirmation = await devnetConnection.confirmTransaction(signature, 'confirmed');
+
+      if (confirmation.value.err) {
+        throw new Error('Transaction failed to confirm');
+      }
+
+      // Clear form and refresh token balances
+      setTransferAmount('');
+      setRecipientAddress('');
+      setSelectedToken('');
+      await fetchUserTokens();
+
+      // Show success message
+      console.log('Transfer successful:', signature);
+
+    } catch (error) {
+      console.error("Error transferring token:", error);
+      setError(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
 
 
   return (
@@ -155,7 +277,7 @@ export default function TokenLaunchpad() {
         transition={{ duration: 0.5 }}
         className="container mx-auto"
       >
-        <h1 className="text-3xl sm:text-4xl font-bold mb-8 text-center">Solana Token Launchpad</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold mb-8 text-center">Token Launchpad</h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 w-full">
           <motion.div
@@ -325,11 +447,92 @@ export default function TokenLaunchpad() {
                 <p className="text-sm">Please connect your wallet to create tokens</p>
               </motion.div>
             )}
+
+            {wallet.publicKey && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white bg-opacity-10 p-4 sm:p-6 rounded-lg"
+              >
+                <h2 className="text-xl sm:text-2xl font-semibold mb-6">Your Token Balances</h2>
+                {userTokens.length > 0 ? (
+                  <ul className="space-y-2">
+                    {userTokens.map((token, index) => (
+                      <li key={index} className="flex justify-between items-center">
+                        <span>{token.publicKey.slice(0,15)}......</span>
+                        <span className="font-bold">Balance: {token.amount}....</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No tokens found in your wallet.</p>
+                )}
+              </motion.div>
+            )}
+
+            {wallet.publicKey && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white bg-opacity-10 p-4 sm:p-6 rounded-lg"
+              >
+                <h2 className="text-xl sm:text-2xl font-semibold mb-6">Transfer Tokens</h2>
+                <form className="space-y-4" onSubmit={transferToken}>
+                  <div>
+                    <label className="block text-base sm:text-lg font-medium mb-2">Select Token</label>
+                    <select
+                      className="w-full px-4 py-2 bg-black border border-white rounded-md text-white focus:outline-none focus:ring-2 focus:ring-white"
+                      value={selectedToken}
+                      onChange={(e) => setSelectedToken(e.target.value)}
+                      required
+                    >
+                      <option value="">Select a token</option>
+                      {userTokens.map((token, index) => (
+                        <option key={index} value={token.publicKey}>
+                          {token.publicKey}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-base sm:text-lg font-medium mb-2">Amount</label>
+                    <input
+                      type="number"
+                      className="w-full px-4 py-2 bg-black border border-white rounded-md text-white focus:outline-none focus:ring-2 focus:ring-white"
+                      placeholder="Enter amount to transfer"
+                      value={transferAmount}
+                      onChange={(e) => setTransferAmount(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-base sm:text-lg font-medium mb-2">Recipient Address</label>
+                    <input
+                      type="text"
+                      className="w-full px-4 py-2 bg-black border border-white rounded-md text-white focus:outline-none focus:ring-2 focus:ring-white"
+                      placeholder="Enter recipient's address"
+                      value={recipientAddress}
+                      onChange={(e) => setRecipientAddress(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <motion.button
+                    type="submit"
+                    disabled={isLoading}
+                    className={`w-full py-3 text-lg sm:text-xl rounded-md font-bold transition-colors ${isLoading ? "bg-gray-600 cursor-not-allowed" : "bg-white text-black hover:bg-gray-200"
+                      }`}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    Transfer Tokens
+                  </motion.button>
+                </form>
+              </motion.div>
+            )}
           </motion.div>
         </div>
       </motion.div>
       <Footer />
     </div>
-
   );
 }
