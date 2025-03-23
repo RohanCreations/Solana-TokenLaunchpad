@@ -1,6 +1,6 @@
 # Solana Token Launchpad
 
-🚀 **Solana Token Launchpad** is a powerful tool that allows users to create and manage tokens on the Solana blockchain with ease. Built using the **Solana Program Library (SPL)**, this launchpad enables seamless token creation, transfers, and wallet interactions.
+🚀 **Solana Token Launchpad** is a powerful tool that allows users to create and manage tokens on the Solana blockchain with ease. Built using the **Solana Program Library (SPL)**, this launchpad enables seamless token creation, transfers, and wallet interactions on Devnet.
 
 ## ✨ Features
 
@@ -15,7 +15,7 @@
 - **Solana Program Library (SPL)**
 - **Solana Web3.js**
 - **Solana Wallet Adapter**
-- **Next.js + TypeScript**
+- **React.js + TypeScript**
 - **Tailwind CSS**
 
 ## 🌟 About This Project
